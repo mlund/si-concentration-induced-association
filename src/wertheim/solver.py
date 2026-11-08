@@ -2,10 +2,9 @@
 
 Follows Li et al., J. Phys. Chem. B 2016, 120, 8953. Both closures are from
 Wertheim, J. Stat. Phys. 1984, 35, 35: Percus-Yevick-like (eq. 15) and
-reference-HNC (eqs. 38-40). Two printed equations in Li et al. are wrong and are
-corrected here: eq. 1 needs
-(2A - 2d + r), from the site-overlap geometry, and eq. 4 needs +rho/X, from mass
-action.
+reference-HNC (eqs. 38-40). Li et al. misprint two equations, corrected here
+(A = reach, X = bonding): eq. 1 needs (2A - 2d + r), from the site-overlap
+geometry, and eq. 4 needs +rho/X, from mass action.
 
 Lengths are in units of the hard-sphere diameter D.
 
@@ -14,8 +13,7 @@ c01 -> a c01 and c11 -> a^2 c11 (same for gamma). This takes rho0 out of the
 Ornstein-Zernike matrix and keeps a^2 exp(beta eps) finite for strong patches.
 """
 
-from __future__ import annotations
-
+from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Literal, get_args
@@ -61,7 +59,7 @@ class Patch:
             raise ValueError(f"patch can form more than dimers, or cannot bind: {self}")
 
     def overlap_probability(self, r: np.ndarray) -> np.ndarray:
-        """Eq. 1 without its Boltzmann prefactor; zero outside the bonding shell."""
+        """Eq. 1 without its Boltzmann prefactor."""
         d, reach = self.d, self.reach
         end = 2 * d + reach
         shape = (end - r) ** 2 * (2 * reach - 2 * d + r) / (24 * d**2 * r)
@@ -75,11 +73,14 @@ class Grid:
         contact = round(1 / dr)
         if not np.isclose(contact * dr, 1.0):
             raise ValueError("1/dr must be an integer to place r = D on a node")
-        self.n, self.dr = n, dr
-        self.r = np.arange(1, n) * dr
-        self.dk = np.pi / (n * dr)
-        self.k = np.arange(1, n) * self.dk
+        if contact >= n:
+            raise ValueError(f"grid ends at r = {(n - 1) * dr}, before contact at r = 1")
+        self.dr = 1 / contact
+        # Divide: multiplying by dr can land just below 1 and lose the contact node.
+        self.r = np.arange(1, n) / contact
         self.contact = contact - 1
+        self.dk = np.pi / (n * self.dr)
+        self.k = np.arange(1, n) * self.dk
 
     def forward(self, f: np.ndarray) -> np.ndarray:
         return (2 * np.pi * self.dr / self.k) * dst(self.r * f, type=1)
@@ -125,13 +126,13 @@ class _Anderson:
     """Anderson acceleration; a plain damped iteration needs far more passes."""
 
     def __init__(self, mixing: float = 0.5, history: int = 8) -> None:
-        self.mixing, self.history = mixing, history
-        self.xs: list[np.ndarray] = []
-        self.residuals: list[np.ndarray] = []
+        self.mixing = mixing
+        self.xs: deque[np.ndarray] = deque(maxlen=history)
+        self.residuals: deque[np.ndarray] = deque(maxlen=history)
 
     def step(self, x: np.ndarray, residual: np.ndarray) -> np.ndarray:
-        self.xs = [*self.xs, x.copy()][-self.history :]
-        self.residuals = [*self.residuals, residual.copy()][-self.history :]
+        self.xs.append(x)
+        self.residuals.append(residual)
         if len(self.xs) < 2:
             return x + self.mixing * residual
         dx = np.diff(np.array(self.xs), axis=0).T
@@ -150,7 +151,7 @@ def solve(
     max_iter: int = 3000,
     closure: Closure = "percus-yevick",
 ) -> Solution:
-    """Iterate gamma00, gamma01 and gamma11 to self-consistency at volume fraction phi."""
+    """Solve at volume fraction phi; `guess` is a previous `Solution.gamma`."""
     if closure not in get_args(Closure):
         raise ValueError(f"unknown closure: {closure}")
     grid = grid or Grid()
@@ -159,9 +160,8 @@ def solve(
     mayer = np.expm1(patch.beta_eps)
     overlap = patch.overlap_probability(r)
 
-    outside = np.exp(-potential(r[contact:]))
     boltzmann = np.zeros_like(r)
-    boltzmann[contact:] = outside
+    boltzmann[contact:] = np.exp(-potential(r[contact:]))
 
     gamma_reference = None
     if closure == "reference-hnc":
@@ -173,23 +173,23 @@ def solve(
 
     def iterate(x: np.ndarray):
         gamma00, gamma01, gamma11 = np.split(x, 3)
+        # The closures differ only in these three terms.
         if gamma_reference is None:
             g00 = boltzmann * (1 + gamma00)
+            dressing = boltzmann
+            chain = 0.0
         else:
             g00 = boltzmann * (1 + gamma_reference) * np.exp(gamma00 - gamma_reference)
+            dressing = g00
+            chain = gamma01**2
         integrand = g00 * overlap * r**2
         bonding = mayer * 4 * np.pi * np.trapezoid(integrand[contact:], r[contact:])
         a = 2 / (1 + np.sqrt(1 + 4 * bonding * rho))  # eq. 4, stable as bonding -> 0
 
         bond = a**2 * mayer * overlap
-        if gamma_reference is None:
-            c00 = (boltzmann - 1) * (gamma00 + 1)
-            c01 = (boltzmann - 1) * gamma01
-            c11 = (boltzmann - 1) * gamma11 + g00 * bond
-        else:
-            c00 = g00 - 1 - gamma00
-            c01 = (g00 - 1) * gamma01
-            c11 = g00 * (gamma01**2 + gamma11 + bond) - gamma11
+        c00 = g00 - 1 - gamma00
+        c01 = (dressing - 1) * gamma01
+        c11 = (dressing - 1) * gamma11 + g00 * (bond + chain)
 
         # Midpoint value at the jump keeps the sine transform second order.
         c00[contact] = 0.5 * (c00[contact] - 1 - gamma00[contact])
@@ -210,8 +210,9 @@ def solve(
         )
         return updated, (c00, c01, c11), a, bonding
 
-    x = np.zeros(3 * r.size) if guess is None else guess.copy()
+    x = np.zeros(3 * r.size) if guess is None else guess
     mixer = _Anderson()
+    error = np.inf
     for iteration in range(max_iter):
         updated, c, a, bonding = iterate(x)
         residual = updated - x
@@ -227,7 +228,9 @@ def solve(
 def second_virial(patch: Patch, potential: Potential = hard_sphere, r_max: float = 60.0) -> float:
     """B2 in units of D^3, exact for the orientation-averaged model."""
     r = np.linspace(1.0, r_max, 1_180_001)
-    boltzmann = np.exp(-potential(r)) * (1 + np.expm1(patch.beta_eps) * patch.overlap_probability(r))
+    boltzmann = np.exp(-potential(r)) * (
+        1 + np.expm1(patch.beta_eps) * patch.overlap_probability(r)
+    )
     return float(2 * np.pi / 3 - 2 * np.pi * np.trapezoid((boltzmann - 1) * r**2, r))
 
 

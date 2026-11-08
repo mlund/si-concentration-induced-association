@@ -43,7 +43,7 @@ solve(phi=0.02, patch=Patch(14.0), closure="reference-hnc")  # default: "percus-
 |---|---|
 | `src/wertheim/solver.py` | Wertheim integral-equation solver and exact B2 |
 | `src/wertheim/baxter.py` | Baxter adhesive-sphere structure factor |
-| `scripts/` | One script per comparison with the article |
+| `scripts/` | One script per comparison with the article; shared inputs in `common.py` |
 | `data/` | Values digitized from the article's figures |
 | `results/`, `figures/` | Output of the scripts |
 | `tests/` | Analytic limits, and regression against the article |

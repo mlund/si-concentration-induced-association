@@ -13,6 +13,7 @@ from wertheim import (
 )
 
 PATCH_FREE = Patch(0.0)
+YUKAWA = double_yukawa(1.0, 20.0, 0.7 / 6, 2.0, 3.69)
 
 
 def percus_yevick_s0(phi: float) -> float:
@@ -36,7 +37,7 @@ def test_strong_patch_at_high_dilution_is_ideal_dimer_gas():
     "patch, potential",
     [
         (Patch(0.0), hard_sphere),
-        (Patch(11.2), double_yukawa(1.0, 20.0, 0.7 / 6, 2.0, 3.69)),
+        (Patch(11.2), YUKAWA),
         (Patch(12.5), hard_sphere),
     ],
 )
@@ -60,18 +61,25 @@ def test_small_q_structure_factor_matches_s0():
     assert s[0] == pytest.approx(solution.s0, abs=1e-3)
 
 
-def test_eq1_correction_matches_monte_carlo():
+@pytest.mark.parametrize("r", [1.0, 1.03, 1.06])
+def test_eq1_correction_matches_monte_carlo(r):
     """Guards the printed typo: (2A + 2d + r) is about 11x too large at contact."""
     rng = np.random.default_rng(1)
-    n = 4_000_000
+    n = 2_000_000
     patch = Patch(1.0)
-    u1, u2 = rng.normal(size=(n, 3)), rng.normal(size=(n, 3))
-    u1 /= np.linalg.norm(u1, axis=1, keepdims=True)
-    u2 /= np.linalg.norm(u2, axis=1, keepdims=True)
-    separation = np.array([0.0, 0.0, 1.0]) + patch.d * (u2 - u1)
-    hits = np.mean(np.linalg.norm(separation, axis=1) < patch.reach)
-    expected = float(patch.overlap_probability(np.array([1.0]))[0])
-    assert hits == pytest.approx(expected, rel=0.1)
+    # Overlap needs cos(theta) >= 0.8 for both sites when r >= 1, so sample only those
+    # cones: bonding is otherwise too rare to resolve.
+    cone_fraction = (1 - 0.8) / 2
+
+    def directions(sign):
+        z = rng.uniform(0.8, 1.0, n)
+        azimuth = rng.uniform(0, 2 * np.pi, n)
+        radial = np.sqrt(1 - z**2)
+        return np.column_stack([radial * np.cos(azimuth), radial * np.sin(azimuth), sign * z])
+
+    separation = np.array([0.0, 0.0, r]) + patch.d * (directions(-1) - directions(1))
+    hits = np.mean(np.linalg.norm(separation, axis=1) < patch.reach) * cone_fraction**2
+    assert hits == pytest.approx(float(patch.overlap_probability(np.array([r]))[0]), rel=0.03)
 
 
 def test_patch_that_allows_trimers_is_rejected():
@@ -83,15 +91,26 @@ def test_figure_5_top_panel_value():
     assert solve(0.01, Patch(14.0)).s0 == pytest.approx(1.451, abs=0.003)
 
 
-def test_nonconvergence_raises_instead_of_returning():
+@pytest.mark.parametrize("max_iter", [0, 1])
+def test_nonconvergence_raises_instead_of_returning(max_iter):
     with pytest.raises(RuntimeError):
-        solve(0.1, Patch(14.0), max_iter=1)
+        solve(0.1, Patch(14.0), max_iter=max_iter)
+
+
+@pytest.mark.parametrize("contact", [49, 50, 98, 103])
+def test_contact_node_is_exactly_one(contact):
+    """49, 98 and 103 are spacings where i * dr rounds below 1."""
+    assert Grid(2**10, 1 / contact).r[contact - 1] == 1.0
+
+
+def test_grid_that_ends_before_contact_is_rejected():
+    with pytest.raises(ValueError):
+        Grid(40, 0.02)
 
 
 def test_reference_hnc_without_patch_recovers_its_reference():
-    potential = double_yukawa(1.0, 20.0, 0.7 / 6, 2.0, 3.69)
-    reference = solve(0.1, PATCH_FREE, potential)
-    solution = solve(0.1, PATCH_FREE, potential, closure="reference-hnc")
+    reference = solve(0.1, PATCH_FREE, YUKAWA)
+    solution = solve(0.1, PATCH_FREE, YUKAWA, closure="reference-hnc")
     assert solution.s0 == pytest.approx(reference.s0, abs=1e-6)
     assert solution.monomer_fraction == 1.0
 
@@ -157,7 +176,7 @@ def finite_range_state(phi: float, bond_volume: float, reach: float, dr: float, 
 def test_sticky_limit_matches_wertheim_analytic_equation_of_state(phi, bond_volume):
     coarse = finite_range_state(phi, bond_volume, 0.02, 0.0005, 2**16)
     fine = finite_range_state(phi, bond_volume, 0.01, 0.00025, 2**17)
-    extrapolated = [2 * f - c for c, f in zip(coarse, fine)]  # error is linear in range
+    extrapolated = [2 * f - c for c, f in zip(coarse, fine, strict=True)]  # error linear in range
     expected = sticky_limit(phi, bond_volume)
     assert extrapolated[0] == pytest.approx(expected[0], abs=2e-4)
     assert extrapolated[1] == pytest.approx(expected[1], rel=2e-4)
@@ -174,9 +193,16 @@ def test_baxter_dilute_limit_follows_virial_coefficient():
 
 
 def test_baxter_s_of_q_approaches_s0():
-    assert baxter_s_of_q(np.array([1e-5]), 0.05, 0.3)[0] == pytest.approx(
-        baxter_s0(0.05, 0.3), rel=1e-8
-    )
+    assert baxter_s_of_q(1e-5, 0.05, 0.3)[0] == pytest.approx(baxter_s0(0.05, 0.3), rel=1e-8)
+
+
+def test_baxter_is_ideal_at_zero_density():
+    assert baxter_s0(0.0, 0.5) == 1.0
+
+
+def test_baxter_stays_accurate_at_large_stickiness_parameter():
+    # Stickiness tends to 1/tau, so S(0) must reach the hard-sphere value.
+    assert baxter_s0(1e-3, 1e7) == pytest.approx(percus_yevick_s0(1e-3), abs=1e-9)
 
 
 def test_baxter_rejects_state_without_real_solution():
