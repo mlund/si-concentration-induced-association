@@ -1,0 +1,17 @@
+# Published Baxter model lines at q = 0.00498 1/angstrom, digitized from the raster of
+# Fig. 3 in Li et al., J. Phys. Chem. B 2016, 120, 8953. Model values, not measurements.
+# phi and conc_mg_mL are the values printed in the Fig. 3 legend.
+phi,conc_mg_mL,salt_mM,S_line
+0.011,15,35,1.121
+0.018,25,35,1.209
+0.033,45,35,1.227
+0.050,69,35,1.138
+0.069,95,35,0.980
+0.092,127,35,0.772
+0.120,161,35,0.584
+0.018,25,200,1.025
+0.033,45,200,0.937
+0.047,65,200,0.840
+0.054,75,200,0.785
+0.065,90,200,0.713
+0.094,130,200,0.548

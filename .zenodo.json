@@ -1,0 +1,35 @@
+{
+  "title": "Wertheim theory for one-patch spheres: supporting code and data for Li et al. 2016",
+  "upload_type": "software",
+  "description": "Retrospective (2026) reimplementation of the Wertheim integral-equation calculations in Li et al., J. Phys. Chem. B 2016, 120, 8953, with values digitized from the article's figures. It is not the original 2016 code and was not part of the peer-reviewed article. Code is under MIT; data, results and figures are under CC BY 4.0. See NOTES.md for what reproduces, what does not, and two misprints in the article's equations.",
+  "creators": [
+    {
+      "name": "Mikael Lund",
+      "affiliation": "Division of Computational Chemistry, Department of Chemistry, Lund University, Sweden",
+      "orcid": "0000-0001-8178-8175"
+    }
+  ],
+  "license": "MIT",
+  "access_right": "open",
+  "keywords": [
+    "Wertheim theory",
+    "integral equations",
+    "patchy particles",
+    "protein association",
+    "structure factor",
+    "lactoferrin"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/mlund/si-concentration-induced-association",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    },
+    {
+      "identifier": "10.1021/acs.jpcb.6b06873",
+      "relation": "isSupplementTo",
+      "resource_type": "publication-article",
+      "scheme": "doi"
+    }
+  ]
+}

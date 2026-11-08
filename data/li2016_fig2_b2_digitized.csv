@@ -1,0 +1,13 @@
+# Measured B2 of lactoferrin, digitized from the raster inset of Fig. 2 in
+# Li et al., J. Phys. Chem. B 2016, 120, 8953. Not the original measurements.
+# err_nm3 is the error-bar half-width; blank where the bar could not be resolved.
+salt_mM,B2_nm3,err_nm3
+5,-105,
+10,-367,40
+15,-547,50
+25,-431,55
+35,-333,52
+60,-256,41
+100,4,51
+200,22,28
+300,83,
