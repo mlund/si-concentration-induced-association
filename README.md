@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/1450672386.svg)](https://doi.org/10.5281/zenodo.24061630)
+
 # Wertheim theory for one-patch spheres
 
 Supporting code and data for:
